@@ -52,6 +52,8 @@ const int revPin = 7;                  // Blasters Rev Trigger, not used for rev
 int revButtonState = 0;                // the current state of the output pin
 unsigned long timeofLastDebounce = 0;  // the last time the output pin was toggled
 unsigned long delayofDebounce = 100;   // the debounce time; increase if the output flickers
+unsigned long timeofLastTriggerDebounce = 0;
+unsigned long delayofTriggerDebounce = 150;
 
 // Hardcoded for now rev trigger override test
 int overRide = 0;
@@ -102,7 +104,7 @@ int SolenoidOnMax = 200;          //Used for settings menu
 int SolenoidOnTime = 25;          //Time in mS for turning on the solenoid (keep this just enough for pushing darts in the flywheels securely) 25 seems good for FTW solenoid on 3s
 int SolenoidOffMin = 25;          //Used for settings menu
 int SolenoidOffMax = 200;         //Used for settings menu
-int SolenoidOffTime = 40;         //Time in mS for turning off the solenoid (keep this just enough for retracting the pusher completely) 40 seems good for FTW solenoid on 3s with double spring
+int SolenoidOffTime = 40;         //Time in mS for turning off the solenoid (keep this just enough for retracting the pusher completely) 40 seems good foo;or FTW solenoid on 3s with double spring
 int SolenoidOffTimeFullAuto = 0;  // Additional delay for slowing down full auto.
 int SpinDownTimeMin = 0;          //Used for settings menu
 int SpinDownTimeMax = 50;         //Used for settings menu
@@ -128,6 +130,8 @@ int triggerFire = 0;  //Current firing state, used by other functions such as sp
 int settings_state = 0;      //Is the setttings menu active? Used to switch display modes.
 int settings_item = 1;       //Tracking current selected settings option
 int settings_max_items = 5;  //Total number of settings items. Used to loop through options.
+
+int lastTriggerState = HIGH;
 
 void setup() {
   // EEProm read
@@ -204,9 +208,16 @@ void loop() {
   }
 
   // fire!
-  if (!digitalRead(ButtonPin) && triggerRelease == 0) {
-    fire();
+  int triggerState = digitalRead(ButtonPin);
+  if (triggerState != lastTriggerState) {
+    timeofLastTriggerDebounce = millis();
   }
+  if (!triggerState && triggerRelease == 0) {
+    if ((millis() - timeofLastTriggerDebounce) > delayofTriggerDebounce) {
+      fire();
+    }
+  }
+  lastTriggerState = triggerState;
 
   if (Button1State == 0) {
     tone(BuzzerPin, 3500, 50);
@@ -699,4 +710,3 @@ void constantRevTrigger() {
 
     if (frame_delay > 50) frame_delay = frame_delay - 20;
   }
-
