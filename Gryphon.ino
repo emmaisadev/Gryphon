@@ -26,7 +26,6 @@ String version = "v0.12.7";
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <EEPROM.h>
-#include "images.h"
 #include <Fonts/Org_01.h>
 
 #define OLED_RESET -1     // Reset pin # (or -1 if sharing Arduino reset pin)
@@ -39,31 +38,25 @@ Servo Motor2;
 
 int debug = 1;  // enable debug mode
 
-const int ButtonPin = 12;  //Connect to Ground for firing
-const int ESC1Pin = 10;    // change from 12 to 10 (10 is a pwm pin)
-const int ESC2Pin = 11;
-const int SelectorPin1 = 4;  //Connect to Ground for a change of the shooting mode   -- Press both buttons to access the settings menu.
-const int SelectorPin2 = 5;  //Connect to Ground for a change of the power
-const int SolenoidPin = 3;   //Connect this to your Mosfet (I used the wiring of: https://create.arduino.cc/projecthub/Clark3DPR/full-auto-3d-printed-brushless-nerf-blaster-arduino-control-a711b0 )
+#define ButtonPin 12  //Connect to Ground for firing
+#define ESC1Pin 10    // change from 12 to 10 (10 is a pwm pin)
+#define ESC2Pin 11
+#define SelectorPin1 4  //Connect to Ground for a change of the shooting mode   -- Press both buttons to access the settings menu.
+#define SelectorPin2 5  //Connect to Ground for a change of the power
+#define SolenoidPin 3   //Connect this to your Mosfet (I used the wiring of: https://create.arduino.cc/projecthub/Clark3DPR/full-auto-3d-printed-brushless-nerf-blaster-arduino-control-a711b0 )
 
 //Rev Trigger
-int revTriggerMode = 1;                // Which Mode is the Rev Trigger, is it a Rev trigger, an override switch or constant spin?
-const int revPin = 7;                  // Blasters Rev Trigger, not used for revving but as a quick override to swap modes.
+#define revPin 7
 int revButtonState = 0;                // the current state of the output pin
 unsigned long timeofLastDebounce = 0;  // the last time the output pin was toggled
 unsigned long delayofDebounce = 100;   // the debounce time; increase if the output flickers
 unsigned long timeofLastTriggerDebounce = 0;
 unsigned long delayofTriggerDebounce = 150;
 
-// Hardcoded for now rev trigger override test
-int overRide = 0;
-int overRideRotationSpeed = 1300;  // Adjustable on blaster but kid friendly for now
-int constantRotationSpeed = 1100;  // Keep the motors spinning slowly so spin up time is faster
 int stopSpinningSpeed = 1000;      // Variable to hold the speed to slow motors to in spindown
-int revConstantSpinActive = 0;     // Are the wheels spinning constantly
 //-------------------------------------
 
-const int BuzzerPin = 2;  //buzzer to arduino pin 2
+#define BuzzerPin 2  //buzzer to arduino pin 2
 
 int solenoidOn = 0;  // 1 = Remove solenoid in code for testing
 int motorsOn = 0;    // 1 = Remove motors in code for testing
@@ -72,15 +65,12 @@ int motorsOn = 0;    // 1 = Remove motors in code for testing
 int currentPress = 0;
 int lastPress = 0;
 
-int kidFriendlyMode = 0;                         // Is kid friendly mode active?
-const float kidFriendlyRotationPercentage = 20;  // Motor speed for kid friendly mode - 20%
-int kidFriendlyRotationSpeed = 1050;             // Actual Motor speed
 const int minRotationSpeed = 1040;               // Motor Minimum rotation  speed
 const int maxRotationSpeed = 1960;               // Motor Maximum rotation  speed
-const int rotationChangeInterval =10;           // Increment to change speed
+const int rotationChangeInterval = 5;           // Increment to change speed
 int actualRotationSpeed = minRotationSpeed;      // The variable actually used by the motors.
 int areWheelsAlreadySpinning = 0;                // Variable to know whether to skip Preheat or not.
-int preHeatSkipMinRotationSpeed = kidFriendlyRotationSpeed;
+int preHeatSkipMinRotationSpeed = 1050;
 int rotationSpeedIntermediaery = 0;
 //String rotationSpeedDisplay = String(rotationChangeInterval) + "%";  // Used for displaying Power Percentage
 String rotationSpeedDisplay = String(rotationChangeInterval);
@@ -89,7 +79,6 @@ String rotationSpeedDisplay = String(rotationChangeInterval);
 
 int fireMode = 1;                                         //Firing fireMode 1)single 2)burst 3)full-auto
 int actualMode = 1;                                       //The variable actually used by the blaster
-int overRideMode = 1;                                     //The Override mode selection
 int BurstAmount = 3;                                      // How many shots is burst?
 String burstAmountText = "BURST " + String(BurstAmount);  // Text to hold the Burst Amount menu value
 int RotationSpeedPercent = rotationChangeInterval;        // What percentage the power is;
@@ -104,7 +93,7 @@ int SolenoidOnMax = 200;          //Used for settings menu
 int SolenoidOnTime = 25;          //Time in mS for turning on the solenoid (keep this just enough for pushing darts in the flywheels securely) 25 seems good for FTW solenoid on 3s
 int SolenoidOffMin = 25;          //Used for settings menu
 int SolenoidOffMax = 200;         //Used for settings menu
-int SolenoidOffTime = 40;         //Time in mS for turning off the solenoid (keep this just enough for retracting the pusher completely) 40 seems good foo;or FTW solenoid on 3s with double spring
+int SolenoidOffTime = 40;         //Time in mS for turning off the solenoid (keep this just enough for retracting the pusher completely) 40 seems good for FTW solenoid on 3s with double spring
 int SolenoidOffTimeFullAuto = 0;  // Additional delay for slowing down full auto.
 int SpinDownTimeMin = 0;          //Used for settings menu
 int SpinDownTimeMax = 50;         //Used for settings menu
@@ -161,7 +150,6 @@ void setup() {
   pinMode(SelectorPin2, INPUT_PULLUP);
   pinMode(SolenoidPin, OUTPUT);
 
-  pinMode(revPin, INPUT_PULLUP);
   pinMode(BuzzerPin, OUTPUT);  // Set buzzer - pin 2 as an output
 
   digitalWrite(SolenoidPin, LOW);
@@ -171,7 +159,6 @@ void setup() {
   Motor1.write(1000);
   Motor2.write(1000);
 
-  KidModeSpeed();
   preHeatSkipMinRotationSpeed = minRotationSpeed + ((50 / 100) * (maxRotationSpeed - minRotationSpeed));
 
   tone(BuzzerPin, 4000, 200);
@@ -195,17 +182,11 @@ void loop() {
   // Fix continuous rev
   if (digitalRead(ButtonPin) == 1 && triggerFire == 1) {
     triggerFire = 0;
-    //spinDown();
   }
 
-  //Rev Trigger Mode
-  if (revTriggerMode == 1) {
-    revTheRevTrigger();
-  }
 
-  if (revTriggerMode == 2) {
-    constantRevTrigger();
-  }
+  revTheRevTrigger();
+
 
   // fire!
   int triggerState = digitalRead(ButtonPin);
@@ -233,8 +214,9 @@ void loop() {
         }
         debugMSG(String(RotationSpeedPercent));
 
-        rotationSpeedDisplay = String(RotationSpeedPercent) + "%";
-        //rotationSpeedDisplay = String(RotationSpeedPercent);
+        //rotationSpeedDisplay = String(RotationSpeedPercent) + "%";
+        rotationSpeedDisplay = String(RotationSpeedPercent);
+        debugMSG(String(rotationSpeedDisplay));
         updateMenu();
       } else {
         settings_value_change();
@@ -274,9 +256,9 @@ void revTheRevTrigger() {
     if ((millis() - timeofLastDebounce) > delayofDebounce) {
       revButtonState = 1;
       timeofLastDebounce = millis();
-      OverRideTypeCheck();
       SetMotorSpeed();
       areWheelsAlreadySpinning = 1;
+      debugMSG(String(areWheelsAlreadySpinning));
     }
   } else {
     if (digitalRead(revPin) == 1 && revButtonState == 1) {
@@ -289,45 +271,12 @@ void revTheRevTrigger() {
   }
 }
 
-void constantRevTrigger() {
-
-  if (digitalRead(revPin) == 0 && revButtonState == 0) {
-    if ((millis() - timeofLastDebounce) > delayofDebounce) {
-      timeofLastDebounce = millis();
-      if (revConstantSpinActive == 0) {
-        revConstantSpinActive = 1;
-        revButtonState = 1;
-        stopSpinningSpeed = constantRotationSpeed;
-        Motor1.write(constantRotationSpeed);
-        Motor2.write(constantRotationSpeed);
-        areWheelsAlreadySpinning = 1;
-        //Serial.println("On");
-      } else {
-        revConstantSpinActive = 0;
-        timeofLastDebounce = millis();
-        //Serial.println("Off");
-        stopSpinningSpeed = 1000;
-        actualRotationSpeed = constantRotationSpeed;
-        spinDown();
-      }
-    }
-  } else {
-    if (digitalRead(revPin) == 1 && revConstantSpinActive == 1 && revButtonState ==1) {
-      if ((millis() - timeofLastDebounce) > delayofDebounce) {
-        timeofLastDebounce = millis();
-        revButtonState = 0;
-      }
-    }
-  }
-}
-
   void updateMenu() {
     display.clearDisplay();
     display.drawRect(0, 0, 128, 64, 1);
     display.drawLine(0, 41, 128, 41, 1);
     display.setFont(&Org_01);
     display.setTextColor(WHITE);
-    //Serial.println(fireMode);
 
     switch (fireMode) {
 
@@ -373,21 +322,15 @@ void constantRevTrigger() {
   }
 
   void displayRotationSpeed() {
-    if (kidFriendlyMode == 1) {
-      display.setTextSize(2);
-      displayTextCenter("KID", 16);
-      displayTextCenter("MODE", 32);
-    } else {
       display.setTextSize(5);
       displayTextCenter(rotationSpeedDisplay, 30);
-    }
   }
 
   void displayTextCenter(String text, int verticalPosition) {
-    int16_t x1;
-    int16_t y1;
-    uint16_t width;
-    uint16_t height;
+    int16_t x1 = 0;
+    int16_t y1 = 0;
+    uint16_t width = 0;
+    uint16_t height = 0;
 
     display.getTextBounds(text, 0, 0, &x1, &y1, &width, &height);
     display.setCursor((SCREEN_WIDTH - width) / 2, verticalPosition);
@@ -499,13 +442,13 @@ void constantRevTrigger() {
 
   void fire() {
     triggerRelease = 1;
-    OverRideTypeCheck();
 
 
     // No delay fix 
     currentPress = millis();
     if ((currentPress - lastPress) > (Preheat / 2)){
       areWheelsAlreadySpinning = 0;
+      debugMSG(String("Turned off wheels?"));
     }
     else{
       areWheelsAlreadySpinning = 1;
@@ -515,7 +458,9 @@ void constantRevTrigger() {
     if (actualMode == 1) {
       SetMotorSpeed();
       triggerFire = 1;
+      debugMSG(String(areWheelsAlreadySpinning));
       if (areWheelsAlreadySpinning == 0) {
+        debugMSG(String("Hit the preheat"));
         delay(Preheat);
       }
       fireSolenoid();
@@ -549,39 +494,10 @@ void constantRevTrigger() {
     }
   }
 
-  void OverRideTypeCheck() {
-    if (!revButtonState && overRide == 0 && revTriggerMode == 0) {
-      overRide = 1;
-      //Serial.println("Override Active");
-      debugMSG("Override Active");
-    } else if (revButtonState && overRide == 1) {
-      overRide = 0;
-    }
-
-    if (!kidFriendlyMode) {
-      if (!overRide) {
-        actualRotationSpeed = RotationSpeed;
-        actualMode = fireMode;
-        debugMSG("Standard!!");
-      } else {
-        actualRotationSpeed = overRideRotationSpeed;
-        actualMode = overRideMode;
-        debugMSG("Override!!");
-      }
-    } else {
-      actualRotationSpeed = kidFriendlyRotationSpeed;
-      actualMode = fireMode;
-      debugMSG("Kids!!");
-    }
-  }
-
   void SetMotorSpeed() {
     if (motorsOn == 0) {
       Motor1.write(actualRotationSpeed);
       Motor2.write(actualRotationSpeed);
-      //areWheelsAlreadySpinning = 1;
-      //Serial.println(actualRotationSpeed);
-      //delay(1000);  //Used for testing so I have time to put the darts in
     }
   }
 
@@ -601,7 +517,7 @@ void constantRevTrigger() {
 
       if (pos <= preHeatSkipMinRotationSpeed && areWheelsAlreadySpinning == 1) {
         areWheelsAlreadySpinning = 0;
-        //Serial.println("wheels are too slow now");
+        //debugMSG(String("wheels are too slow now"));
       }
 
       triggerFire = 0;
@@ -650,17 +566,6 @@ void constantRevTrigger() {
     EEPROM.update(EEP_Status, 0);
   }
 
-  void animLoop(int count) {
-    while (count > 0)  // repeat until count is no longer greater than zero
-    {
-      animFrames();
-      count = count - 1;  // decrement count
-    }
-  }
-
-  void KidModeSpeed() {
-    kidFriendlyRotationSpeed = minRotationSpeed + ((kidFriendlyRotationPercentage / 100) * (maxRotationSpeed - minRotationSpeed));
-  }
 
   void debugMSG(String myString) {
     if (debug == 1) {
@@ -668,45 +573,3 @@ void constantRevTrigger() {
     }
   }
 
-  void animFrames() {
-
-    // Display Animation
-
-    // Frame1
-    display.clearDisplay();
-    display.drawBitmap(0, 0, epd_bitmap_fib_0000, 128, 64, 1);
-    display.display();
-    delay(frame_delay);
-
-    // Frame2
-    display.clearDisplay();
-    display.drawBitmap(0, 0, epd_bitmap_fib_0001, 128, 64, 1);
-    display.display();
-    delay(frame_delay);
-
-    // Frame3
-    display.clearDisplay();
-    display.drawBitmap(0, 0, epd_bitmap_fib_0002, 128, 64, 1);
-    display.display();
-    delay(frame_delay);
-
-    // Frame4
-    display.clearDisplay();
-    display.drawBitmap(0, 0, epd_bitmap_fib_0003, 128, 64, 1);
-    display.display();
-    delay(frame_delay);
-
-    // Frame5
-    display.clearDisplay();
-    display.drawBitmap(0, 0, epd_bitmap_fib_0004, 128, 64, 1);
-    display.display();
-    delay(frame_delay);
-
-    // Frame6
-    display.clearDisplay();
-    display.drawBitmap(0, 0, epd_bitmap_fib_0005, 128, 64, 1);
-    display.display();
-    delay(frame_delay);
-
-    if (frame_delay > 50) frame_delay = frame_delay - 20;
-  }
