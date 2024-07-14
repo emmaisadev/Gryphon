@@ -20,7 +20,7 @@
 // v0.12.6 Fix solenoid no delay logic by checking how much time has passed in ms between trigger pulls. If it is more than half the preheat value then skip preheat.
 // Attempting to rewrite the code to make is simpler for rev trigger.
 
-String version = "v0.12.7";
+String version = "QT01";
 
 #include <Servo.h>
 #include <Adafruit_GFX.h>
@@ -38,25 +38,30 @@ Servo Motor2;
 
 int debug = 1;  // enable debug mode
 
-#define ButtonPin 12  //Connect to Ground for firing
-#define ESC1Pin 10    // change from 12 to 10 (10 is a pwm pin)
-#define ESC2Pin 11
-#define SelectorPin1 4  //Connect to Ground for a change of the shooting mode   -- Press both buttons to access the settings menu.
-#define SelectorPin2 5  //Connect to Ground for a change of the power
-#define SolenoidPin 3   //Connect this to your Mosfet (I used the wiring of: https://create.arduino.cc/projecthub/Clark3DPR/full-auto-3d-printed-brushless-nerf-blaster-arduino-control-a711b0 )
+const int ButtonPin = 12;  //Connect to Ground for firing
+const int ESC1Pin = 10;    // change from 12 to 10 (10 is a pwm pin)
+const int ESC2Pin = 11;
+const int SelectorPin1 = 4;  //Connect to Ground for a change of the shooting mode   -- Press both buttons to access the settings menu.
+const int SelectorPin2 = 5;  //Connect to Ground for a change of the power
+const int SolenoidPin = 3;   //Connect this to your Mosfet (I used the wiring of: https://create.arduino.cc/projecthub/Clark3DPR/full-auto-3d-printed-brushless-nerf-blaster-arduino-control-a711b0 )
 
 //Rev Trigger
-#define revPin 7
-int revButtonState = 0;                // the current state of the output pin
+const int revPin = 7;                  // Blasters Rev Trigger, not used for revving but as a quick override to swap modes.
 unsigned long timeofLastDebounce = 0;  // the last time the output pin was toggled
 unsigned long delayofDebounce = 100;   // the debounce time; increase if the output flickers
-unsigned long timeofLastTriggerDebounce = 0;
-unsigned long delayofTriggerDebounce = 150;
+unsigned long timeOfLastTriggerDebounce = 0;
+unsigned long delayOfTriggerDebounce = 25;
 
-int stopSpinningSpeed = 1000;      // Variable to hold the speed to slow motors to in spindown
-//-------------------------------------
+unsigned long revTime = 0;
 
-#define BuzzerPin 2  //buzzer to arduino pin 2
+int revState = 0;
+int revTrigger = 0;
+
+int triggerState = 0;
+
+unsigned long lastFireTime = 0;
+
+const int BuzzerPin = 2;  //buzzer to arduino pin 2
 
 int solenoidOn = 0;  // 1 = Remove solenoid in code for testing
 int motorsOn = 0;    // 1 = Remove motors in code for testing
@@ -67,7 +72,7 @@ int lastPress = 0;
 
 const int minRotationSpeed = 1040;               // Motor Minimum rotation  speed
 const int maxRotationSpeed = 1960;               // Motor Maximum rotation  speed
-const int rotationChangeInterval = 5;           // Increment to change speed
+const int rotationChangeInterval =10;           // Increment to change speed
 int actualRotationSpeed = minRotationSpeed;      // The variable actually used by the motors.
 int areWheelsAlreadySpinning = 0;                // Variable to know whether to skip Preheat or not.
 int preHeatSkipMinRotationSpeed = 1050;
@@ -78,7 +83,6 @@ String rotationSpeedDisplay = String(rotationChangeInterval);
 
 
 int fireMode = 1;                                         //Firing fireMode 1)single 2)burst 3)full-auto
-int actualMode = 1;                                       //The variable actually used by the blaster
 int BurstAmount = 3;                                      // How many shots is burst?
 String burstAmountText = "BURST " + String(BurstAmount);  // Text to hold the Burst Amount menu value
 int RotationSpeedPercent = rotationChangeInterval;        // What percentage the power is;
@@ -93,13 +97,11 @@ int SolenoidOnMax = 200;          //Used for settings menu
 int SolenoidOnTime = 25;          //Time in mS for turning on the solenoid (keep this just enough for pushing darts in the flywheels securely) 25 seems good for FTW solenoid on 3s
 int SolenoidOffMin = 25;          //Used for settings menu
 int SolenoidOffMax = 200;         //Used for settings menu
-int SolenoidOffTime = 40;         //Time in mS for turning off the solenoid (keep this just enough for retracting the pusher completely) 40 seems good for FTW solenoid on 3s with double spring
+int SolenoidOffTime = 40;         //Time in mS for turning off the solenoid (keep this just enough for retracting the pusher completely) 40 seems good foo;or FTW solenoid on 3s with double spring
 int SolenoidOffTimeFullAuto = 0;  // Additional delay for slowing down full auto.
 int SpinDownTimeMin = 0;          //Used for settings menu
 int SpinDownTimeMax = 50;         //Used for settings menu
 int SpinDownTime = 3;
-
-int frame_delay = 70;
 
 // EEPROM addresses 2 bytes for each int starting at 0
 int EEP_Preheat = 0;  // since this number is bigger than 255 (8bit int) we may need to do some math or something to make it smaller. Possible dived by ten then store, read and multiply by ten?
@@ -113,8 +115,6 @@ int Button1State = 1;       //Tracking button presses
 int Button2State = 1;       //Tracking button presses
 int triggerRelease = 0;     //Used to track if trigger has been released
 int revTriggerPressed = 0;  //Used to track if trigger has been released
-
-int triggerFire = 0;  //Current firing state, used by other functions such as spin down
 
 int settings_state = 0;      //Is the setttings menu active? Used to switch display modes.
 int settings_item = 1;       //Tracking current selected settings option
@@ -141,7 +141,6 @@ void setup() {
   displayTextCenter(version, 35);
   display.display();
   delay(2000);
-  //animLoop(3);
   rotationSpeedDisplay = String(RotationSpeedPercent) + "%";
   updateMenu();
 
@@ -150,6 +149,7 @@ void setup() {
   pinMode(SelectorPin2, INPUT_PULLUP);
   pinMode(SolenoidPin, OUTPUT);
 
+  pinMode(revPin, INPUT_PULLUP);
   pinMode(BuzzerPin, OUTPUT);  // Set buzzer - pin 2 as an output
 
   digitalWrite(SolenoidPin, LOW);
@@ -158,8 +158,6 @@ void setup() {
   Motor2.attach(ESC2Pin, 1000, 2000);
   Motor1.write(1000);
   Motor2.write(1000);
-
-  preHeatSkipMinRotationSpeed = minRotationSpeed + ((50 / 100) * (maxRotationSpeed - minRotationSpeed));
 
   tone(BuzzerPin, 4000, 200);
   delay(400);
@@ -171,34 +169,41 @@ void setup() {
 }
 
 void loop() {
-  Button1State = digitalRead(SelectorPin1);
-  Button2State = digitalRead(SelectorPin2);
-
-
-  if (digitalRead(ButtonPin) && triggerRelease == 1) {
-    triggerRelease = 0;
-  }
-
-  // Fix continuous rev
-  if (digitalRead(ButtonPin) == 1 && triggerFire == 1) {
-    triggerFire = 0;
-  }
-
-
-  revTheRevTrigger();
-
-
-  // fire!
-  int triggerState = digitalRead(ButtonPin);
-  if (triggerState != lastTriggerState) {
-    timeofLastTriggerDebounce = millis();
-  }
-  if (!triggerState && triggerRelease == 0) {
-    if ((millis() - timeofLastTriggerDebounce) > delayofTriggerDebounce) {
-      fire();
+  revTrigger = !digitalRead(revPin);
+ //debugMSG(String(revTrigger));
+  if(revState != revTrigger){
+    if(revTrigger == 1){
+      SetMotorState(RotationSpeed);
+      revTime = millis();
+      revState = 1;
+    }
+    else{
+      if((lastFireTime + 200) < millis()){
+        SetMotorState(0);
+        revState = 0;
+      }
     }
   }
-  lastTriggerState = triggerState;
+  triggerState = digitalRead(ButtonPin);
+  if(revState && (revTime + Preheat < millis()) && !triggerState && !triggerRelease) {
+        fire();
+    }
+  // fire
+  
+  if (triggerRelease) {
+    if(triggerState == lastTriggerState){
+      if (millis() > timeOfLastTriggerDebounce + delayOfTriggerDebounce && triggerState) {
+      triggerRelease = 0;
+      }      
+    }
+    else {
+      timeOfLastTriggerDebounce = millis();
+    }
+    lastTriggerState = triggerState;
+  }
+
+  Button1State = digitalRead(SelectorPin1);
+  Button2State = digitalRead(SelectorPin2);
 
   if (Button1State == 0) {
     tone(BuzzerPin, 3500, 50);
@@ -214,9 +219,8 @@ void loop() {
         }
         debugMSG(String(RotationSpeedPercent));
 
-        //rotationSpeedDisplay = String(RotationSpeedPercent) + "%";
-        rotationSpeedDisplay = String(RotationSpeedPercent);
-        debugMSG(String(rotationSpeedDisplay));
+        rotationSpeedDisplay = String(RotationSpeedPercent) + "%";
+        //rotationSpeedDisplay = String(RotationSpeedPercent);
         updateMenu();
       } else {
         settings_value_change();
@@ -249,34 +253,13 @@ void loop() {
 }
 // End of void loop
 
-void revTheRevTrigger() {
-
-  if (digitalRead(revPin) == 0 && revButtonState == 0) {
-
-    if ((millis() - timeofLastDebounce) > delayofDebounce) {
-      revButtonState = 1;
-      timeofLastDebounce = millis();
-      SetMotorSpeed();
-      areWheelsAlreadySpinning = 1;
-      debugMSG(String(areWheelsAlreadySpinning));
-    }
-  } else {
-    if (digitalRead(revPin) == 1 && revButtonState == 1) {
-      if ((millis() - timeofLastDebounce) > delayofDebounce) {
-        revButtonState = 0;
-        timeofLastDebounce = millis();
-        spinDown();
-      }
-    }
-  }
-}
-
   void updateMenu() {
     display.clearDisplay();
     display.drawRect(0, 0, 128, 64, 1);
     display.drawLine(0, 41, 128, 41, 1);
     display.setFont(&Org_01);
     display.setTextColor(WHITE);
+    //Serial.println(fireMode);
 
     switch (fireMode) {
 
@@ -322,15 +305,15 @@ void revTheRevTrigger() {
   }
 
   void displayRotationSpeed() {
-      display.setTextSize(5);
-      displayTextCenter(rotationSpeedDisplay, 30);
+    display.setTextSize(5);
+    displayTextCenter(rotationSpeedDisplay, 30);
   }
 
   void displayTextCenter(String text, int verticalPosition) {
-    int16_t x1 = 0;
-    int16_t y1 = 0;
-    uint16_t width = 0;
-    uint16_t height = 0;
+    int16_t x1;
+    int16_t y1;
+    uint16_t width;
+    uint16_t height;
 
     display.getTextBounds(text, 0, 0, &x1, &y1, &width, &height);
     display.setCursor((SCREEN_WIDTH - width) / 2, verticalPosition);
@@ -441,50 +424,23 @@ void revTheRevTrigger() {
   }
 
   void fire() {
+    debugMSG("FireCalled");
     triggerRelease = 1;
+    timeOfLastTriggerDebounce = millis();
 
-
-    // No delay fix 
-    currentPress = millis();
-    if ((currentPress - lastPress) > (Preheat / 2)){
-      areWheelsAlreadySpinning = 0;
-      debugMSG(String("Turned off wheels?"));
-    }
-    else{
-      areWheelsAlreadySpinning = 1;
-    }    
-    lastPress = currentPress;
-
-    if (actualMode == 1) {
-      SetMotorSpeed();
-      triggerFire = 1;
-      debugMSG(String(areWheelsAlreadySpinning));
-      if (areWheelsAlreadySpinning == 0) {
-        debugMSG(String("Hit the preheat"));
-        delay(Preheat);
-      }
+    if (fireMode == 1) {
       fireSolenoid();
       //spinDown();
     }
 
-    if (actualMode == 2) {
-      SetMotorSpeed();
-      triggerFire = 1;
-      if (areWheelsAlreadySpinning == 0) {
-        delay(Preheat);
-      }
-      for (int i = 0; i <= BurstAmount; i++) {
+    if (fireMode == 2) {
+      for (int i = 1; i <= BurstAmount; i++) {
         fireSolenoid();
       }
       //spinDown();
     }
 
-    if (actualMode == 3) {
-      SetMotorSpeed();
-      triggerFire = 1;
-      if (areWheelsAlreadySpinning == 0) {
-        delay(Preheat);
-      }
+    if (fireMode == 3) {
       fireSolenoid();
       while (!digitalRead(ButtonPin)) {
         fireSolenoid();
@@ -492,37 +448,12 @@ void revTheRevTrigger() {
       }
       //spinDown();
     }
+    lastFireTime = millis();
   }
 
-  void SetMotorSpeed() {
-    if (motorsOn == 0) {
-      Motor1.write(actualRotationSpeed);
-      Motor2.write(actualRotationSpeed);
-    }
-  }
-
-  void spinDown() {
-    for (pos = actualRotationSpeed; pos >= stopSpinningSpeed; pos -= 10) {
-      Motor1.write(pos);
-      Motor2.write(pos);
-
-      if (digitalRead(ButtonPin)) {
-        triggerRelease = 0;
-      }
-
-      if (!digitalRead(ButtonPin) && triggerRelease == 0) {
-        fire();
-        break;
-      }
-
-      if (pos <= preHeatSkipMinRotationSpeed && areWheelsAlreadySpinning == 1) {
-        areWheelsAlreadySpinning = 0;
-        //debugMSG(String("wheels are too slow now"));
-      }
-
-      triggerFire = 0;
-      delay(SpinDownTime);
-    }
+  void SetMotorState(int stateRequest) {
+    Motor1.write(stateRequest);
+    Motor2.write(stateRequest);
   }
 
   // FIRE Solenoid
@@ -566,10 +497,8 @@ void revTheRevTrigger() {
     EEPROM.update(EEP_Status, 0);
   }
 
-
   void debugMSG(String myString) {
     if (debug == 1) {
       Serial.println(myString);
     }
   }
-
